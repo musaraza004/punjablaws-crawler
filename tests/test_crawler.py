@@ -28,6 +28,19 @@ class Response(io.BytesIO):
 
 
 class CrawlerTests(unittest.TestCase):
+    def test_unreachable_network_stops_early(self):
+        def no_network_preflight():
+            crawl.DELAY = 0
+            crawl.ROBOTS = None
+        with tempfile.TemporaryDirectory() as folder, patch.object(run_crawl, 'preflight', side_effect=no_network_preflight), patch('urllib.request.urlopen', side_effect=urllib.error.URLError('timed out')), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, 'No HTML pages'):
+                run_crawl.main(['--output',folder,'--workers','2','--retries','0'])
+            s=json.loads((Path(folder)/'punjablaws_crawl/summary.json').read_text())
+            self.assertFalse(s['complete'])
+            self.assertGreater(s['pending'],0)
+            self.assertLessEqual(s['fetched_pages'],3)
+            self.assertIn('halt_reason',s)
+
     def test_scope_and_redirects(self):
         self.assertEqual(crawl.canonical('http://punjabcode.punjab.gov.pk/en/page/faqs#top'), crawl.BASE+'en/page/faqs')
         self.assertIsNone(crawl.canonical('https://example.org/'))

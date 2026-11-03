@@ -4,6 +4,8 @@
 
 Crawl <https://punjablaws.punjab.gov.pk/> in English and Urdu. Save original HTML and visible page text, collect PDF URLs and titles, follow pagination and subordinate legislation, and export CSV/JSON results. **PDF binaries are never downloaded.** Python 3.11+; no packages or API keys are required.
 
+**Current hosting limitation (3 November 2026):** the local live check saved 5/5 pages, but the GitHub-hosted live check could not connect to the website (20/20 requests timed out). Separate Linux, ARM Linux, and Windows runner checks also timed out at the TCP connection stage. The code and tests run on GitHub, but a successful cloud crawl depends on the website becoming reachable from that runner. See [connectivity checks](https://github.com/musaraza004/punjablaws-crawler/actions/workflows/connectivity.yml). Run locally for free from a network that can reach the website; no proxy or paid hosting is required. The exact cause of the hosted network timeouts has not been established.
+
 ## Run free on GitHub
 
 1. Open **Actions → Run crawler → Run workflow**.
@@ -28,6 +30,8 @@ python run_crawl.py --export-only
 ```
 
 Defaults: four workers, at least 0.3 seconds between request starts across all workers, and two retries for connection failures, HTTP 408/429/5xx, and incomplete bodies. Readable robots.txt directives and crawl delays are enforced. If robots.txt is unavailable (the site returned HTTP 403 during the initial crawl), its status is recorded and public GET crawling continues. Off-site redirects are blocked. No login areas or forms are submitted.
+
+If all initial page requests fail to connect, the crawler stops early and preserves pending URLs. A run with no saved HTML exits with an error instead of publishing an empty successful release.
 
 ## Results
 

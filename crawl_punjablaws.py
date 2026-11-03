@@ -141,6 +141,7 @@ def fetch(url):
         transient = row['status'] in (0,408,429) or row['status']>=500 or row['error'] in ('Incomplete response body','Empty response body')
         if row['error']=='Blocked by robots.txt' or not transient or attempt==RETRIES:
             return row,links
+        print(f"Retry {attempt+1}/{RETRIES}: {url}: {row['error']}", flush=True)
         try: pause=float(row.get('retry_after',''))
         except ValueError: pause=2**attempt
         time.sleep(min(max(pause,1),30))
@@ -207,7 +208,7 @@ def main():
             for href,title in parser.links:
                 if href and not href.startswith(('#','javascript:','mailto:','tel:')):
                     enqueue(up.urljoin(u,href),title)
-    started=time.monotonic(); completed=0
+    started=time.monotonic(); completed=0; network_unreachable=False
     fields=['url','status','title','article_id','content_type','bytes','file','text_file','error']
     def save(final=False):
         (ROOT/'inventory.json').write_text(json.dumps(inventory,ensure_ascii=False),encoding='utf-8')
@@ -220,12 +221,15 @@ def main():
         (ROOT/'urls.txt').write_text('\n'.join(sorted(inventory))+'\n',encoding='utf-8')
         summary={'updated_at':datetime.now(timezone.utc).isoformat(),'complete':final,'discovered_urls':len(inventory),'fetched_pages':len(records),'successful_pages':sum(200<=r['status']<300 and not r['error'] and 'html' in r['content_type'] for r in records.values()),'documents':sum(i['kind']=='document' for i in inventory.values()),'aliases_skipped':sum('alias_of' in i for i in inventory.values()),'historical_links_not_queued':sum('fetch_policy' in i for i in inventory.values()),'pending':len(pending)+len(active),'errors':sum(bool(r['error']) for r in records.values()),'status_counts':dict(collections.Counter(r['status'] for r in records.values())),'sitemap_urls':len(raw_sitemap),'robots':ROBOTS_STATUS,'scope':'Public same-host HTML pages, pagination, and subordinate law links. PDFs are inventoried and never downloaded. Legacy sitemap host mapped to requested host; historical long encoded article links are inventoried unless --include-legacy is selected.','settings':{'workers':WORKERS,'delay':DELAY,'max_pages_per_run':MAX_PAGES,'retries':RETRIES,'include_legacy':INCLUDE_LEGACY}}
         (ROOT/'summary.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
+        if network_unreachable:
+            summary['halt_reason']='All initial requests failed to connect; pending URLs are preserved for a later run.'
+            (ROOT/'summary.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
         print(json.dumps(summary),flush=True)
     with cf.ThreadPoolExecutor(max_workers=WORKERS) as pool, log.open('a',encoding='utf-8') as out:
         active={}
         save()
         while pending or active:
-            while pending and len(active)<WORKERS and (not MAX_PAGES or completed+len(active)<MAX_PAGES):
+            while pending and not network_unreachable and len(active)<WORKERS and (not MAX_PAGES or completed+len(active)<MAX_PAGES):
                 u=pending.popleft();active[pool.submit(fetch,u)]=u
             if not active: break
             done,_=cf.wait(active,timeout=5,return_when=cf.FIRST_COMPLETED)
@@ -240,6 +244,8 @@ def main():
                     if key in article_urls: inventory[u]['duplicate_article_of']=article_urls[key]
                     else: article_urls[key]=u
                 for target,title in links: enqueue(target,title)
+                if completed>=WORKERS and records and all(r['status']==0 for r in records.values()):
+                    network_unreachable=True
                 if completed%100==0: save()
         save(final=not pending)
     (ROOT/'README.md').write_text('Punjab Laws crawl\n\nSee summary.json for coverage and errors. urls.csv contains all discovered page and document URLs. pages.csv contains fetch results. results.jsonl is the resumable fetch log. pages/ contains gzip-compressed HTML and extracted visible text. PDFs and other documents are inventoried by URL and are not downloaded. The sitemap uses punjabcode.punjab.gov.pk; its paths were requested on punjablaws.punjab.gov.pk. Encoded article links can change between responses; named aliases are recorded to prevent unbounded duplicate discovery. No forms were submitted.\n',encoding='utf-8')
