@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+        runner: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 5
     steps:
@@ -17,9 +17,19 @@ jobs:
       - name: Check public site access
         shell: python
         run: |
-          import time, urllib.request
-          url = 'https://punjablaws.punjab.gov.pk/'
-          started = time.monotonic()
-          with urllib.request.urlopen(url, timeout=20) as response:
-              body = response.read(1024)
-              print('Status:', response.status, 'sample bytes:', len(body), 'elapsed:', time.monotonic()-started, flush=True)
+          import concurrent.futures, time, urllib.request
+          def check(url):
+              started = time.monotonic()
+              try:
+                  with urllib.request.urlopen(url, timeout=20) as response:
+                      body = response.read(1024)
+                      print(url, 'status:', response.status, 'sample bytes:', len(body), 'elapsed:', time.monotonic()-started, flush=True)
+                      return response.status == 200 and bool(body)
+              except Exception as error:
+                  print(url, type(error).__name__, str(error), flush=True)
+                  return False
+          urls = ['https://punjablaws.punjab.gov.pk/', 'http://punjablaws.punjab.gov.pk/', 'https://punjabcode.punjab.gov.pk/']
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+              results = list(pool.map(check, urls))
+          if not any(results):
+              raise SystemExit('None of the public website endpoints is reachable from this runner.')
