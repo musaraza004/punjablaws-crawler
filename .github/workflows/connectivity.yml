@@ -1,0 +1,25 @@
+name: Website connectivity
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: Check public site access
+        shell: python
+        run: |
+          import time, urllib.request
+          url = 'https://punjablaws.punjab.gov.pk/'
+          started = time.monotonic()
+          with urllib.request.urlopen(url, timeout=20) as response:
+              body = response.read(1024)
+              print('Status:', response.status, 'sample bytes:', len(body), 'elapsed:', time.monotonic()-started, flush=True)
