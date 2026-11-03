@@ -1,0 +1,52 @@
+name: Run crawler
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_pages:
+        description: 'Page limit: 0 = full crawl; 20 = quick check'
+        default: '0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: punjablaws-crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: Test crawler
+        run: python -m unittest discover -s tests -v
+      - name: Crawl public HTML and collect PDF URLs
+        env:
+          MAX_PAGES: ${{ inputs.max_pages }}
+        run: python -u run_crawl.py --max-pages "$MAX_PAGES"
+      - name: Publish downloadable results
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: crawl-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s = json.loads(Path('output/punjablaws_crawl/summary.json').read_text())
+          status = 'Complete discovered-link crawl' if s['complete'] else 'Partial crawl (page limit reached)'
+          notes = f"{status}\n\nSaved HTML pages: {s['successful_pages']}\nPDF/document URLs: {s['documents']}\nFailed/incomplete requests: {s['errors']}\nPending pages: {s['pending']}\n\nPDF binaries are not downloaded. See summary.json and README.md in the ZIP for coverage limits."
+          Path('output/release-notes.md').write_text(notes)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write(notes + '\n')
+          PY
+          gh release create "$RELEASE_TAG" output/punjablaws_crawl.zip output/punjablaws_crawl/urls.csv output/punjablaws_crawl/documents.csv output/punjablaws_crawl/summary.json --title "Punjab Laws crawl $RELEASE_TAG" --notes-file output/release-notes.md
